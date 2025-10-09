@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np 
 import matplotlib.pyplot as plt
 import scipy.stats as stats
+from scipy.stats import norm
 import pingouin as pg
+import seaborn as sns
 import re
 
 def load_data(file_path, info_path):
@@ -61,124 +63,97 @@ def delay_classifier(df):
     gt_list = gt_df.tolist()
     return delay_interval_list, df_with_classified_delays, rat_ids, dob_list, gt_list
 
-def rat_info(df, delay_interval, date): 
-    # returns a dataframe with each genotypes rats and their counts of single attempts and greater than 1 attempts
+def d_prime_graph(df):
+
+    df = df[['Response','rat_ID','Genotype','UUID']]
+
+    df['hit'] = df['Response'] == "Hit"
+    df['miss'] = df['Response'] == "Miss"
+    df['cr'] = df["Response"] == "CR"
+    df['fa'] = df["Response"] == "FA"
+
+    groups = df.groupby(['rat_ID','UUID','Genotype']).agg(
+        hit_num=('hit', 'sum'),
+        miss_num=('miss', 'sum'),
+        cr_num=('cr', 'sum'),
+        fa_num=('fa', 'sum'))
+
+    groups['hit_rate'] = groups['hit_num'] / (groups['miss_num'] + groups['hit_num'])
+    groups['fa_rate'] = groups['fa_num'] / (groups['fa_num'] + groups['cr_num'])
+
+    groups['z_hit'] = norm.ppf(groups['hit_rate'])  # Z(H)
+    groups['z_fa'] = norm.ppf(groups['fa_rate'])  # Z(F)
+
+    groups['d_prime'] = groups['z_hit'] - groups['z_fa']
+
+    data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
+
+
+   
+    fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True)
+    sns.boxplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', palette='Set2', width=0.5, ax=ax1)
+    sns.swarmplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', color='black', size=2, ax=ax1)
+
+    plt.title(f"d' Differences Across Genotype/Rat")
+    plt.ylabel("d'")
+    plt.xlabel('Rat/Genotype')
+
+    sns.boxplot(x='Genotype', y='d_prime', data=data, palette='Set2', width=0.5, ax=ax2)
+    sns.swarmplot(x='Genotype', y='d_prime', data=data, color='black', size=2, ax=ax2)
+
+    plt.title(f"d' Average Differences Across Genotype")
+    plt.ylabel("d'")
+    plt.xlabel('Genotype')
+
+    plt.tight_layout()
+    plt.show()
+    return data
+
+
+def single_prop_over_training(df, delay_interval):
+
     df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
     df['one_attempt'] = df['Attempts_to_complete'] == 1
     df['more_than_one_attempt'] = df['Attempts_to_complete'] > 1
+
+    filtered = df.loc[
+            (df['Max Delay (s)'] == delay_interval[0])
+            & (df['Min Delay (s)'] == delay_interval[1])
+            & (df['Delay (s)'] > 2.5)
+            & (df['task'] == 'Training')
+            ]
+    print(filtered)
+    groups = filtered.groupby(['rat_ID', 'Genotype']).agg(
+    trials_one_attempt=('one_attempt', 'sum'),
+    trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
+    total_trials=('Attempts_to_complete', 'count'))
+
+    groups['prop_one_attempt'] = groups['trials_one_attempt'] / groups['total_trials']
+    groups['prop_more_than_one'] = groups['trials_more_than_one_attempt'] / groups['total_trials']
+    grouped_rats_df = groups.sort_values(by=['Genotype', 'rat_ID']).reset_index()
     
-    dfs = []
-    for month in range(1,13):
-        filtered = df.loc[
-                # (df['Max Delay (s)'] == delay_interval[0])
-                # & (df['Min Delay (s)'] == delay_interval[1])
-                # & (df['Delay (s)'] > 2.5)
-                (df['date'].dt.year == date[0])
-                & (df['date'].dt.month == month)
-                ]
-        if filtered.empty:
-            continue  # Skip empty months
+    prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','rat_ID','Genotype']]
+    data = prop_one_attempt_data.sort_values(by=['Genotype','rat_ID']).reset_index()
 
-        groups = filtered.groupby(['rat_ID', 'Genotype']).agg(
-        trials_one_attempt=('one_attempt', 'sum'),
-        trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
-        total_trials=('Attempts_to_complete', 'count'))
+    plt.figure(figsize=(8, 6))
+    sns.boxplot(x='Genotype', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
 
-        groups['prop_one_attempt'] = groups['trials_one_attempt'] / groups['total_trials']
-        groups['prop_more_than_one'] = groups['trials_more_than_one_attempt'] / groups['total_trials']
-        grouped_rats_df = groups.sort_values(by=['Genotype', 'rat_ID']).reset_index()
-        grouped_rats_df['month'] = month
+    sns.swarmplot(x='Genotype', y='prop_one_attempt', data=data, color='black', size=5)
 
-        prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','rat_ID','Genotype','month']]
-        prop_one_attempt_data = prop_one_attempt_data.sort_values(by=['Genotype', 'rat_ID', 'month']).reset_index()
+    plt.title('Proportion of 1-Attempt Trials by Genotype Over Training Period')
+    plt.ylabel('Proportion of Trials Completed in One Attempt')
+    plt.xlabel('Genotype')
 
-        dfs.append(prop_one_attempt_data)
-    
-    result_df = pd.concat(dfs, ignore_index=True)
-    return result_df
-
-def genotype_bargraph(data):
-    
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-
-    
-    sns.lineplot(
-        data=data,
-        x='month',
-        y='prop_one_attempt',
-        hue='Genotype',
-        units='rat_ID',
-        estimator=None,
-        alpha=0.2,              # Faded lines
-        linewidth=1,
-        palette='muted',        # Softer colors
-        legend=False
-        )
-
-    sns.lineplot(
-        data=data,
-        x='month',
-        y='prop_one_attempt',
-        hue='Genotype',
-        estimator='mean',
-        errorbar='se',
-        marker='o',
-        linewidth=3,
-        palette='deep'          # Bold colors
-    )
-
-    plt.title('Proportion of Single-Attempt Trials Over Time by Genotype')
-    plt.xlabel('Month')
-    plt.ylabel('Mean Proportion (± SE)')
-    plt.xticks(range(1, 8))
-    plt.grid(True)
-    plt.legend(title='Genotype', loc='upper right')
     plt.tight_layout()
     plt.show()
-    # sns.set(style="whitegrid")
 
-    # # plt.figure(figsize=(8, 6))
-    # sns.boxplot(x='Genotype', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
-
-    # sns.swarmplot(x='Genotype', y='prop_one_attempt', data=data, color='black', size=5)
-
-    # plt.title('Proportion of 1-Attempt Trials by Genotype')
-    # plt.ylabel('Proportion of Trials Completed in One Attempt')
-    # plt.xlabel('Genotype')
-
-    # plt.tight_layout()
-    # plt.show()
-
-# # Example data
-# data = pd.DataFrame({
-#     'value': [23, 45, 67, 89, 12, 34, 56, 78, 10, 30, 50, 70],
-#     'group': ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'C', 'C', 'C', 'C']
-# })
-
-# # Example residuals
-# residuals = np.random.normal(0, 1, 100)
-
-# # Q-Q plot
-# stats.probplot(residuals, dist="norm", plot=plt)
-# plt.show()
-
-# # Perform one-way ANOVA
-#     anova = pg.anova(data=data, dv='trials_one_attempt', between='Genotype')
-
-#     print(anova)
-
-    # kruskal_result = pg.kruskal(data=data, dv='prop_one_attempt', between='Genotype')
-
-    # # Display the result
-    # print(kruskal_result)
-
+    return data
 
 def main():
     ### data paths and wanted info
     file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_archive.csv"
     file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_data_exported_20250801.csv"
-    wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype']
+    wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task']
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
@@ -191,8 +166,8 @@ def main():
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
 
     ### data analysis
-    graph_data = rat_info(delay_df,wanted_delay_interval,wanted_month)
-    genotype_bargraph(graph_data) 
+    d_prime_data = d_prime_graph(delay_df)
+    # prop_data = single_prop_over_training(delay_df,wanted_delay_interval) 
 
     ### program testing
     print(f'''
@@ -202,12 +177,8 @@ Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-rat data: {graph_data}
+rat data: {d_prime_data}
 ''')
-    ### extra stuff
-# clean df: {clean_df[['UUID','Attempts_to_complete','Delay (s)','weight','rat_ID']]}
-# info df: {info_df[['date','DOB','Sex','weight','Genotype','UUID']]}
-# clean_delay_date_df: {delay_df[['Delay (s)','Max Delay (s)','Min Delay (s)','UUID','complete_block_number','Attempts_to_complete','weight','rat_ID','date']]}
-
+    
 if __name__ == "__main__":
     main()
