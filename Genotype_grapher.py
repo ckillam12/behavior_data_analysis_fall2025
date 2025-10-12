@@ -63,6 +63,42 @@ def delay_classifier(df):
     gt_list = gt_df.tolist()
     return delay_interval_list, df_with_classified_delays, rat_ids, dob_list, gt_list
 
+def file_type_distribution_graph(df):
+    pass
+    # df = 
+
+    # data = 
+
+    # return data
+
+def trial_totals_graph(df):
+
+    df = df[['Genotype','rat_ID','Response','task','analysis_type']]
+
+def training_prop_graph(df):
+
+    df = df[['task','rat_ID','Genotype']]
+
+    df['training'] = df['task'] == "Training"
+
+    groups = df.groupby(['rat_ID','Genotype']).agg(
+        training_num=('training','sum'),
+        total_num=('task','count'))
+    
+    groups['training_props'] = groups['training_num'] / groups['total_num']
+
+    sns.boxplot(x='Genotype', y='training_props', data=groups, palette='Set2', width=0.5)
+    sns.swarmplot(x='Genotype', y='training_props', data=groups, color='black', size=2)
+
+    plt.title(f"Proportion of Training Files Per Genotype")
+    plt.ylabel("Proportion of Training Files")
+    plt.xlabel('Genotype')
+
+    plt.tight_layout()
+    plt.show()
+
+    return groups
+
 def d_prime_graph(df):
 
     df = df[['Response','rat_ID','Genotype','UUID']]
@@ -88,8 +124,6 @@ def d_prime_graph(df):
 
     data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
 
-
-   
     fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True)
     sns.boxplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', palette='Set2', width=0.5, ax=ax1)
     sns.swarmplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', color='black', size=2, ax=ax1)
@@ -107,8 +141,8 @@ def d_prime_graph(df):
 
     plt.tight_layout()
     plt.show()
-    return data
 
+    return data
 
 def single_prop_over_training(df, delay_interval):
 
@@ -153,7 +187,7 @@ def main():
     ### data paths and wanted info
     file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_archive.csv"
     file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_data_exported_20250801.csv"
-    wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task']
+    wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task','analysis_type']
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
@@ -166,18 +200,21 @@ def main():
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
 
     ### data analysis
-    d_prime_data = d_prime_graph(delay_df)
+    file_dist_data = file_type_distribution_graph(df)
+    # training_props_data = training_prop_graph(delay_df)
+    # d_prime_data = d_prime_graph(delay_df)
     # prop_data = single_prop_over_training(delay_df,wanted_delay_interval) 
 
     ### program testing
     print(f'''
+Data using Tones and BBN 
 delay intervals: {delay_interval_list}
 DOBs: {dob_list}
 Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-rat data: {d_prime_data}
+rat data: {file_dist_data}
 ''')
     
 if __name__ == "__main__":
