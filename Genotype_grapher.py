@@ -71,9 +71,31 @@ def file_type_distribution_graph(df):
 
     # return data
 
-def trial_totals_graph(df):
+def trial_totals_graph(df,task,analysis_type):
 
     df = df[['Genotype','rat_ID','Response','task','analysis_type']]
+
+    filtered = df.loc[(df['task'] == f'{task}')
+        # & (df['analysis_type'] == f'{analysis_type}')
+                      ]
+
+    groups = filtered.groupby(['rat_ID','Genotype']).agg(
+                total_trials=('Response','count')
+    )
+
+    data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
+
+    order = data['rat_ID'].tolist()
+
+    sns.barplot(x='rat_ID', y='total_trials', data=data, hue="Genotype", order=order, palette='Set2')
+    plt.title(f"Total Trials for each Genotype")
+    plt.ylabel("Trials Completed")
+    plt.xlabel('Rat/Genotype')
+
+    plt.tight_layout()
+    plt.show()
+
+    return data 
 
 def training_prop_graph(df):
 
@@ -122,29 +144,36 @@ def d_prime_graph(df):
 
     groups['d_prime'] = groups['z_hit'] - groups['z_fa']
 
+    # groups['criterion'] = (-(groups['z_hit'] + groups['z_fa'])/2)
+
     data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
 
     fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True)
     sns.boxplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', palette='Set2', width=0.5, ax=ax1)
-    sns.swarmplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', color='black', size=2, ax=ax1)
+    sns.swarmplot(x='rat_ID', y='d_prime', data=data, color='black', size=1, ax=ax1)
 
-    plt.title(f"d' Differences Across Genotype/Rat")
-    plt.ylabel("d'")
-    plt.xlabel('Rat/Genotype')
+    ax1.set_title("d' Differences Across Genotype/Rat")
+    ax1.set_xlabel('Rat ID')
+    ax1.set_ylabel("d'")
+
+    handles, labels = ax1.get_legend_handles_labels()
+    ax1.legend_.remove()
 
     sns.boxplot(x='Genotype', y='d_prime', data=data, palette='Set2', width=0.5, ax=ax2)
-    sns.swarmplot(x='Genotype', y='d_prime', data=data, color='black', size=2, ax=ax2)
+    sns.swarmplot(x='Genotype', y='d_prime', data=data, color='black', size=1, ax=ax2)
 
-    plt.title(f"d' Average Differences Across Genotype")
-    plt.ylabel("d'")
-    plt.xlabel('Genotype')
+    ax2.set_title("d' Average Differences Across Genotype")
+    ax2.set_xlabel('Genotype')
+    ax2.set_ylabel("")
 
-    plt.tight_layout()
+    fig.legend(handles, labels, title='Genotype', loc='upper center', ncol=len(labels))
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # leave space for legend
     plt.show()
 
     return data
 
-def single_prop_over_training(df, delay_interval):
+def single_prop(df, delay_interval, task):
 
     df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
     df['one_attempt'] = df['Attempts_to_complete'] == 1
@@ -154,7 +183,7 @@ def single_prop_over_training(df, delay_interval):
             (df['Max Delay (s)'] == delay_interval[0])
             & (df['Min Delay (s)'] == delay_interval[1])
             & (df['Delay (s)'] > 2.5)
-            & (df['task'] == 'Training')
+            & (df['task'] == f'{task}')
             ]
     print(filtered)
     groups = filtered.groupby(['rat_ID', 'Genotype']).agg(
@@ -191,7 +220,9 @@ def main():
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
-
+    task = "Training"
+    analysis_type = "Training - BBN"
+    
     ### data cleaning and organization
     df, info_df = load_data(file_path, file_info_path)
     info_df = file_info(info_df)
@@ -200,21 +231,23 @@ def main():
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
 
     ### data analysis
-    file_dist_data = file_type_distribution_graph(df)
-    # training_props_data = training_prop_graph(delay_df)
+    # file_dist_data = file_type_distribution_graph(df)
+    # trial_totals_data = trial_totals_graph(delay_df,task,analysis_type)
+    # training_time_props_data = training_prop_graph(delay_df)
     # d_prime_data = d_prime_graph(delay_df)
-    # prop_data = single_prop_over_training(delay_df,wanted_delay_interval) 
+    # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training") 
+    # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Baseline")
 
     ### program testing
     print(f'''
-Data using Tones and BBN 
+Data using Tones and BBN with all different durations
 delay intervals: {delay_interval_list}
 DOBs: {dob_list}
 Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-rat data: {file_dist_data}
+rat data: {_data}
 ''')
     
 if __name__ == "__main__":
