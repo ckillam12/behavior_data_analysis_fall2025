@@ -109,8 +109,10 @@ def training_prop_graph(df):
     
     groups['training_props'] = groups['training_num'] / groups['total_num']
 
-    sns.boxplot(x='Genotype', y='training_props', data=groups, palette='Set2', width=0.5)
-    sns.swarmplot(x='Genotype', y='training_props', data=groups, color='black', size=2)
+    data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
+
+    sns.boxplot(x='Genotype', y='training_props', data=data, palette='Set2', width=0.5)
+    sns.swarmplot(x='Genotype', y='training_props', data=data, color='black', size=2)
 
     plt.title(f"Proportion of Training Files Per Genotype")
     plt.ylabel("Proportion of Training Files")
@@ -119,7 +121,7 @@ def training_prop_graph(df):
     plt.tight_layout()
     plt.show()
 
-    return groups
+    return data
 
 def d_prime_graph(df):
 
@@ -220,7 +222,7 @@ def main():
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
-    task = "Training"
+    task = "Baseline"
     analysis_type = "Training - BBN"
     
     ### data cleaning and organization
@@ -234,7 +236,7 @@ def main():
     # file_dist_data = file_type_distribution_graph(df)
     # trial_totals_data = trial_totals_graph(delay_df,task,analysis_type)
     # training_time_props_data = training_prop_graph(delay_df)
-    # d_prime_data = d_prime_graph(delay_df)
+    d_prime_data = d_prime_graph(delay_df)
     # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training") 
     # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Baseline")
 
@@ -247,7 +249,7 @@ Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-rat data: {_data}
+rat data: {d_prime_data}
 ''')
     
 if __name__ == "__main__":
