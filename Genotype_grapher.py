@@ -216,14 +216,14 @@ def single_prop(df, delay_interval, task):
 
 def main():
     ### data paths and wanted info
-    file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_archive.csv"
-    file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_data_exported_20250801.csv"
+    file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_trials_20251015.csv"
+    file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_20251015.csv"
     wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task','analysis_type']
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
     task = "Baseline"
-    analysis_type = "Training - BBN"
+    analysis_type = "BBN (Standard)"
     
     ### data cleaning and organization
     df, info_df = load_data(file_path, file_info_path)
