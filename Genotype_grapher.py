@@ -5,6 +5,7 @@ import scipy.stats as stats
 from scipy.stats import norm
 import pingouin as pg
 import seaborn as sns
+from itertools import product
 import re
 
 def load_data(file_path, info_path):
@@ -63,13 +64,75 @@ def delay_classifier(df):
     gt_list = gt_df.tolist()
     return delay_interval_list, df_with_classified_delays, rat_ids, dob_list, gt_list
 
+
+
+##################################################################################################
+##################################################################################################
+##################################################################################################
+
+
+
+def file_diff_graph(df, tasks, analysis_types, delay_interval):
+
+    df = df[['task','analysis_type','Attempts_to_complete','rat_ID','Delay (s)',"Max Delay (s)","Min Delay (s)"]]
+
+    df['one_attempt'] = df['Attempts_to_complete'] == 1
+    df['more_than_one_attempt'] = df['Attempts_to_complete'] > 1
+
+    filtered = df.loc[
+            (df['Max Delay (s)'] == delay_interval[0])
+            & (df['Min Delay (s)'] == delay_interval[1])
+            & (df['Delay (s)'] > 2.5)
+            & (df['task'].isin(tasks))
+            & (df['analysis_type'].isin(analysis_types))
+            ]
+    groups = filtered.groupby(['analysis_type', 'task']).agg(
+    trials_one_attempt=('one_attempt', 'sum'),
+    trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
+    total_trials=('Attempts_to_complete', 'count'))
+
+    groups['prop_one_attempt'] = groups['trials_one_attempt'] / groups['total_trials']
+    groups['prop_more_than_one'] = groups['trials_more_than_one_attempt'] / groups['total_trials']
+    grouped_rats_df = groups.sort_values(by=['analysis_type', 'task']).reset_index()
+    
+    prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','analysis_type','task']]
+    data = prop_one_attempt_data.sort_values(by=['task','analysis_type']).reset_index()
+
+    plt.figure(figsize=(8, 6))
+    sns.boxplot(x='task', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
+
+    sns.swarmplot(x='task', y='prop_one_attempt', data=data, color='black', size=5)
+
+    plt.title('Proportion of 1-Attempt Trials by File Type')
+    plt.ylabel('Proportion of Trials Completed in One Attempt')
+    plt.xlabel('File Type')
+
+    plt.tight_layout()
+    plt.show()
+
+    return data
+
 def file_type_distribution_graph(df):
-    pass
-    # df = 
+    
+    df = df[['UUID','task','analysis_type','rat_ID']]
 
-    # data = 
+    uuids_list = []
 
-    # return data
+    data = df.groupby(['analysis_type','task']).agg(
+                        num_UUIDs = ('UUID','nunique')).reset_index()
+    
+    order = data['task'].tolist()
+    
+    sns.barplot(x='task', y='num_UUIDs', data=data, hue="analysis_type", order=order, palette='Set2')
+    plt.title(f"Session Totals per File Type")
+    plt.ylabel("Number of Sessions")
+    plt.xlabel('Task/Analysis Type')
+    plt.xticks(rotation=45)
+
+    plt.tight_layout()
+    plt.show()
+
+    return data
 
 def trial_totals_graph(df,task,analysis_type):
 
@@ -80,8 +143,7 @@ def trial_totals_graph(df,task,analysis_type):
                       ]
 
     groups = filtered.groupby(['rat_ID','Genotype']).agg(
-                total_trials=('Response','count')
-    )
+                total_trials=('Response','count'))
 
     data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
 
@@ -187,7 +249,6 @@ def single_prop(df, delay_interval, task):
             & (df['Delay (s)'] > 2.5)
             & (df['task'] == f'{task}')
             ]
-    print(filtered)
     groups = filtered.groupby(['rat_ID', 'Genotype']).agg(
     trials_one_attempt=('one_attempt', 'sum'),
     trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
@@ -215,32 +276,47 @@ def single_prop(df, delay_interval, task):
     return data
 
 def main():
-    ### data paths and wanted info
+
+### data paths and wanted info
+
     file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_trials_20251015.csv"
     file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_20251015.csv"
     wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task','analysis_type']
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
-    task = "Baseline"
-    analysis_type = "BBN (Standard)"
+    tasks = ['Rxn', 'TH']
+    analysis_types = ["BBN (Standard)", "Tone (Single)"]
     
-    ### data cleaning and organization
+### data cleaning and organization
     df, info_df = load_data(file_path, file_info_path)
     info_df = file_info(info_df)
     shared_UUIDs = uuid_comparer(df, info_df)
     clean_df = data_cleaner(df, info_df, shared_UUIDs, wanted_columns_for_merge)
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
 
-    ### data analysis
-    # file_dist_data = file_type_distribution_graph(df)
-    # trial_totals_data = trial_totals_graph(delay_df,task,analysis_type)
-    # training_time_props_data = training_prop_graph(delay_df)
-    d_prime_data = d_prime_graph(delay_df)
+### data analysis graphs
+
+## single_props
+
     # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training") 
     # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Baseline")
 
-    ### program testing
+    # file_diff_data = file_diff_graph(delay_df, tasks, analysis_types, wanted_delay_interval)
+
+    # weight_diff_data = weight_diff_graph
+
+## controls
+
+    # file_dist_data = file_type_distribution_graph(delay_df)
+    # trial_totals_data = trial_totals_graph(delay_df,task,analysis_type)
+    # training_time_props_data = training_prop_graph(delay_df)
+
+## other 
+
+    # d_prime_data = d_prime_graph(delay_df)
+
+### program testing
     print(f'''
 Data using Tones and BBN with all different durations
 delay intervals: {delay_interval_list}
@@ -249,7 +325,7 @@ Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-rat data: {d_prime_data}
+data: {file_diff_data}
 ''')
     
 if __name__ == "__main__":
