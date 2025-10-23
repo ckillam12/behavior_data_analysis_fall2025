@@ -275,6 +275,67 @@ def single_prop(df, delay_interval, task):
 
     return data
 
+def x_session_motivation_graph(df,delay_interval,tasks):
+
+    df = df[['Time_since_file_start_(s)','rat_ID','Genotype','UUID','task','analysis_type','Min Delay (s)','Max Delay (s)']]
+
+    filtered = df.loc[
+            (df['Max Delay (s)'] == delay_interval[0])
+            & (df['Min Delay (s)'] == delay_interval[1])
+            & (df['task'].isin(tasks))
+            ]
+
+    rat_data_list = []
+
+    for rat in filtered['rat_ID'].unique():
+        rat_df = filtered.loc[filtered['rat_ID'] == rat]
+        genotype = rat_df['Genotype'].iloc[1]
+
+        for uuid in rat_df['UUID'].unique():
+            session_df = rat_df.loc[rat_df['UUID'] == uuid].sort_values('Time_since_file_start_(s)')
+
+            itis = np.diff(session_df['Time_since_file_start_(s)'].values)
+            n_trials = len(itis)
+            if len(itis) == 0:
+                continue
+            relative_trial_pos = np.linspace(0, 1, n_trials, endpoint=False)
+
+            for iti, pos in zip(itis, relative_trial_pos):
+                rat_data_list.append({
+                    'rat_ID': rat,
+                    'Genotype': genotype,
+                    'UUID': uuid,
+                    'ITI': iti,
+                    'relative_trial_pos': pos
+            })
+
+    iti_df = pd.DataFrame(rat_data_list)
+
+    iti_df["bin"] = pd.cut(iti_df["relative_trial_pos"], bins=10, labels=False)
+    iti_by_bin = iti_df.groupby(["rat_ID", 'Genotype', "UUID", "bin"])["ITI"].mean().reset_index()
+
+    genotypes = iti_by_bin["Genotype"].unique()
+    fig, axes = plt.subplots(1, len(genotypes), figsize=(6 * len(genotypes), 5), sharey=True)
+
+    if len(genotypes) == 1:
+        axes = [axes]
+
+    for ax, genotype in zip(axes, genotypes):
+        subset = iti_by_bin[iti_by_bin["Genotype"] == genotype]
+        mean_iti = subset.groupby("bin")["ITI"].mean()
+        sem_iti = subset.groupby("bin")["ITI"].sem()
+
+        ax.errorbar(mean_iti.index, mean_iti, yerr=sem_iti, fmt='-o', label=genotype)
+        ax.set_title(f"Motivation trend ({genotype})")
+        ax.set_xlabel("Session progression (binned)")
+        ax.set_ylabel("Median inter-trial interval (s)")
+        ax.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    return iti_df
+
 def main():
 
 ### data paths and wanted info
@@ -285,7 +346,7 @@ def main():
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
-    tasks = ['Rxn', 'TH']
+    tasks = ['Rxn','TH']
     analysis_types = ["BBN (Standard)", "Tone (Single)"]
     
 ### data cleaning and organization
@@ -299,7 +360,7 @@ def main():
 
 ## single_props
 
-    # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training") 
+    # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training")
     # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Baseline")
 
     # file_diff_data = file_diff_graph(delay_df, tasks, analysis_types, wanted_delay_interval)
@@ -315,6 +376,7 @@ def main():
 ## other 
 
     # d_prime_data = d_prime_graph(delay_df)
+    # motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,tasks)
 
 ### program testing
     print(f'''
@@ -325,7 +387,7 @@ Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-data: {file_diff_data}
+data: {motivation_data}
 ''')
     
 if __name__ == "__main__":
