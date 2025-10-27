@@ -6,6 +6,8 @@ from scipy.stats import norm
 import pingouin as pg
 import seaborn as sns
 from itertools import product
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from scipy.stats import tukey_hsd
 import re
 
 def load_data(file_path, info_path):
@@ -97,6 +99,8 @@ def file_diff_graph(df, tasks, analysis_types, delay_interval):
     
     prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','analysis_type','task']]
     data = prop_one_attempt_data.sort_values(by=['task','analysis_type']).reset_index()
+    
+    tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['task'], alpha=0.05)
 
     plt.figure(figsize=(8, 6))
     sns.boxplot(x='task', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
@@ -110,7 +114,7 @@ def file_diff_graph(df, tasks, analysis_types, delay_interval):
     plt.tight_layout()
     plt.show()
 
-    return data
+    return data, tukey
 
 def file_type_distribution_graph(df):
     
@@ -134,15 +138,15 @@ def file_type_distribution_graph(df):
 
     return data
 
-def trial_totals_graph(df,task,analysis_type):
+def trial_totals_graph(df,tasks,analysis_types):
 
     df = df[['Genotype','rat_ID','Response','task','analysis_type']]
 
-    filtered = df.loc[(df['task'] == f'{task}')
-        # & (df['analysis_type'] == f'{analysis_type}')
+    filtered = df.loc[(df['task'].isin(tasks))
+        & (df['analysis_type'].isin(analysis_types))
                       ]
 
-    groups = filtered.groupby(['rat_ID','Genotype']).agg(
+    groups = filtered.groupby(['rat_ID','Genotype','task']).agg(
                 total_trials=('Response','count'))
 
     data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
@@ -237,7 +241,12 @@ def d_prime_graph(df):
 
     return data
 
-def single_prop(df, delay_interval, task):
+def single_prop(df, delay_interval, tasks, analysis_types):
+
+    if tasks == ['Training']:
+        label = 'Proportion of 1-Attempt Trials by Genotype Over Training Period'
+    else:
+        label = 'Proportion of 1-Attempt Trials by Genotype'
 
     df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
     df['one_attempt'] = df['Attempts_to_complete'] == 1
@@ -247,8 +256,10 @@ def single_prop(df, delay_interval, task):
             (df['Max Delay (s)'] == delay_interval[0])
             & (df['Min Delay (s)'] == delay_interval[1])
             & (df['Delay (s)'] > 2.5)
-            & (df['task'] == f'{task}')
+            & (df['task'].isin(tasks))
+            & (df['analysis_type'].isin(analysis_types))
             ]
+    
     groups = filtered.groupby(['rat_ID', 'Genotype']).agg(
     trials_one_attempt=('one_attempt', 'sum'),
     trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
@@ -261,19 +272,21 @@ def single_prop(df, delay_interval, task):
     prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','rat_ID','Genotype']]
     data = prop_one_attempt_data.sort_values(by=['Genotype','rat_ID']).reset_index()
 
+    tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['Genotype'], alpha=0.05)
+
     plt.figure(figsize=(8, 6))
     sns.boxplot(x='Genotype', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
 
     sns.swarmplot(x='Genotype', y='prop_one_attempt', data=data, color='black', size=5)
 
-    plt.title('Proportion of 1-Attempt Trials by Genotype Over Training Period')
+    plt.title(label)
     plt.ylabel('Proportion of Trials Completed in One Attempt')
     plt.xlabel('Genotype')
 
     plt.tight_layout()
     plt.show()
 
-    return data
+    return data, tukey
 
 def x_session_motivation_graph(df,delay_interval,tasks):
 
@@ -312,7 +325,7 @@ def x_session_motivation_graph(df,delay_interval,tasks):
     iti_df = pd.DataFrame(rat_data_list)
 
     iti_df["bin"] = pd.cut(iti_df["relative_trial_pos"], bins=10, labels=False)
-    iti_by_bin = iti_df.groupby(["rat_ID", 'Genotype', "UUID", "bin"])["ITI"].mean().reset_index()
+    iti_by_bin = iti_df.groupby(["rat_ID", 'Genotype', "UUID", "bin"])["ITI"].median().reset_index()
 
     genotypes = iti_by_bin["Genotype"].unique()
     fig, axes = plt.subplots(1, len(genotypes), figsize=(6 * len(genotypes), 5), sharey=True)
@@ -346,7 +359,9 @@ def main():
     wanted_delay_interval = (4.0,1.0)
     wanted_month = (2025,1)
     wanted_age = (2024,7)
+    training_tasks = ['Training']
     tasks = ['Rxn','TH']
+    file_diff_tasks = ['Rxn','TH','Training']
     analysis_types = ["BBN (Standard)", "Tone (Single)"]
     
 ### data cleaning and organization
@@ -360,23 +375,25 @@ def main():
 
 ## single_props
 
-    # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Training")
-    # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,"Baseline")
+    # training_single_prop_data, training_prop_tukey = single_prop(delay_df,wanted_delay_interval,training_tasks,analysis_types)
+    # baseline_single_prop_data, baseline_prop_tukey = single_prop(delay_df,wanted_delay_interval,tasks,analysis_types)
 
-    # file_diff_data = file_diff_graph(delay_df, tasks, analysis_types, wanted_delay_interval)
+    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, file_diff_tasks, analysis_types, wanted_delay_interval)
 
     # weight_diff_data = weight_diff_graph
 
 ## controls
 
     # file_dist_data = file_type_distribution_graph(delay_df)
-    # trial_totals_data = trial_totals_graph(delay_df,task,analysis_type)
+    # trial_totals_data = trial_totals_graph(delay_df,tasks,analysis_types)
     # training_time_props_data = training_prop_graph(delay_df)
 
 ## other 
 
     # d_prime_data = d_prime_graph(delay_df)
-    # motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,tasks)
+    # need to separate by task
+    motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,tasks)
+    # need to separate by task
 
 ### program testing
     print(f'''
