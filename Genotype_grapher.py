@@ -30,20 +30,18 @@ def file_info(info_df):
 
 def rxn_th_finder(df):
 
-    print(df.head())
-    pattern = r'\b\d{2}-\d{2}db\b'
+    pattern = r'\b\d{2}-\d{2}dB\b'
 
     matches = df['file_info'].apply(
-        lambda tup: [str(x) for x in tup if re.search(pattern, str(x))]
+        lambda tup: next((x for x in tup if re.search(pattern, str(x))), None)
     )
 
-    # Keep only rows with matches
-    df_filtered = df[matches.astype(bool)]
+    mask = matches.notna()
+    df_filtered = pd.DataFrame({'file_info': matches[mask]}, index=df[mask].index)
 
-    # Flatten and deduplicate
-    freq_range_set = sorted({m for sublist in matches for m in sublist})
+    freq_range_set = sorted(set(matches[mask]))
 
-    return freq_range_set
+    return df_filtered, freq_range_set
 
 def uuid_comparer(df, info_df):
     ### compares uuid (session ID) between dataframes and makes set of matched uuids
@@ -131,33 +129,19 @@ def file_diff_graph(df, tasks, analysis_types, delay_interval):
     plt.title('Proportion of 1-Attempt Trials by Analysis Type and Task')
     plt.ylabel('Proportion of Trials Completed in One Attempt')
     plt.xlabel('Task')
-    plt.legend(title='Analysis Type', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(title='Analysis Type', loc='upper left')
     
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_diff_plots.png', dpi=300, bbox_inches='tight')
-
-    tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['task'], alpha=0.05)
-
-    # plt.figure(figsize=(8, 6))
-    # sns.boxplot(x='task', y='prop_one_attempt', data=data, palette='Set2', width=0.5)
-
-    # sns.swarmplot(x='task', y='prop_one_attempt', data=data, color='black', size=5)
-
-    # plt.title('Proportion of 1-Attempt Trials by File Type')
-    # plt.ylabel('Proportion of Trials Completed in One Attempt')
-    # plt.xlabel('File Type')
-
-    # plt.tight_layout()
-    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_diff_plots.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_file_diff_plots.png', dpi=300, bbox_inches='tight')
     plt.show()
 
+    tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['task'], alpha=0.05)
+    
     return data, tukey
 
 def file_type_distribution_graph(df):
     
     df = df[['UUID','task','analysis_type','rat_ID']]
-
-    uuids_list = []
 
     data = df.groupby(['analysis_type','task']).agg(
                         num_UUIDs = ('UUID','nunique')).reset_index()
@@ -171,7 +155,7 @@ def file_type_distribution_graph(df):
     plt.xticks(rotation=45)
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_type_dist_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_type_dist_plots.png')
     plt.show()
 
     return data
@@ -190,14 +174,21 @@ def trial_totals_graph(df,tasks,analysis_types):
     data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
 
     order = data['rat_ID'].tolist()
+    
+    fig, axes = plt.subplots(1, len(tasks), figsize=(6 * len(tasks), 5), sharey=True)
 
-    sns.barplot(x='rat_ID', y='total_trials', data=data, hue="Genotype", order=order, palette='Set2', ci=None)
-    plt.title(f"Total Trials for each Genotype")
-    plt.ylabel("Trials Completed")
-    plt.xlabel('Rat/Genotype')
+    for ax, task in zip(axes, tasks):
+
+        subset = data[data["task"] == task]
+
+        sns.barplot(x='rat_ID', y='total_trials', data=subset, hue="Genotype", order=order, palette='Set2', ci=None, ax=ax)
+        ax.set_title(f"Total Trials for each Genotype in {task} files")
+        ax.set_ylabel("Trials Completed")
+        ax.set_xlabel('Rat/Genotype')
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_trial_totals_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_trial_totals_plots.png')
     plt.show()
 
     return data 
@@ -226,19 +217,25 @@ def training_prop_graph(df):
     plt.tight_layout()
     plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_training_props_plots.png')
     plt.show()
+    
+    tukey = pairwise_tukeyhsd(endog=data['training_props'], groups=data['Genotype'], alpha=0.05)
 
-    return data
+    return data, tukey
 
-def d_prime_graph(df):
+def d_prime_graph(df, tasks, analysis_types):
 
-    df = df[['Response','rat_ID','Genotype','UUID']]
+    df = df[['Response','rat_ID','Genotype','UUID','task','analysis_type']]
+
+    df = df.loc[(df['task'].isin(tasks))
+                & (df['analysis_type'].isin(analysis_types))
+    ]
 
     df['hit'] = df['Response'] == "Hit"
     df['miss'] = df['Response'] == "Miss"
     df['cr'] = df["Response"] == "CR"
     df['fa'] = df["Response"] == "FA"
 
-    groups = df.groupby(['rat_ID','UUID','Genotype']).agg(
+    groups = df.groupby(['rat_ID','UUID','Genotype','task','analysis_type']).agg(
         hit_num=('hit', 'sum'),
         miss_num=('miss', 'sum'),
         cr_num=('cr', 'sum'),
@@ -247,39 +244,32 @@ def d_prime_graph(df):
     groups['hit_rate'] = groups['hit_num'] / (groups['miss_num'] + groups['hit_num'])
     groups['fa_rate'] = groups['fa_num'] / (groups['fa_num'] + groups['cr_num'])
 
-    groups['z_hit'] = norm.ppf(groups['hit_rate'])  # Z(H)
-    groups['z_fa'] = norm.ppf(groups['fa_rate'])  # Z(F)
+    groups['z_hit'] = norm.ppf(groups['hit_rate'])
+    groups['z_fa'] = norm.ppf(groups['fa_rate']) 
 
     groups['d_prime'] = groups['z_hit'] - groups['z_fa']
-
+    
     # groups['criterion'] = (-(groups['z_hit'] + groups['z_fa'])/2)
 
-    data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
+    data = groups.sort_values(by=['Genotype','rat_ID','task','analysis_type']).reset_index()
 
     tukey = pairwise_tukeyhsd(endog=data['hit_rate'], groups=data['Genotype'], alpha=0.05)
 
-    fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True)
-    sns.boxplot(x='rat_ID', y='d_prime', data=data, hue='Genotype', palette='Set2', width=0.5, ax=ax1)
-    sns.swarmplot(x='rat_ID', y='d_prime', data=data, color='black', size=1, ax=ax1)
+    fig, axes = plt.subplots(1, len(tasks), figsize=(6 * len(tasks), 5), sharey=True)
 
-    ax1.set_title("d' Differences Across Genotype/Rat")
-    ax1.set_xlabel('Rat ID')
-    ax1.set_ylabel("d'")
+    for ax, task in zip(axes, tasks):
 
-    handles, labels = ax1.get_legend_handles_labels()
-    ax1.legend_.remove()
+        subset = data[data["task"] == task]
 
-    sns.boxplot(x='Genotype', y='d_prime', data=data, palette='Set2', width=0.5, ax=ax2)
-    sns.swarmplot(x='Genotype', y='d_prime', data=data, color='black', size=1, ax=ax2)
+        sns.boxplot(x='Genotype', y='d_prime', data=subset, palette='Set2', width=0.5, ax=ax)
+        sns.swarmplot(x='Genotype', y='d_prime', data=subset, color='black', size=1, ax=ax)
 
-    ax2.set_title("d' Average Differences Across Genotype")
-    ax2.set_xlabel('Genotype')
-    ax2.set_ylabel("")
-
-    fig.legend(handles, labels, title='Genotype', loc='upper center', ncol=len(labels))
+        ax.set_title(f"{task} d' Differences Across Genotype")
+        ax.set_xlabel('Genotype')
+        ax.set_ylabel("d'")
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])  # leave space for legend
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_d_prime_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_d_prime_plots.png')
     plt.show()
 
     return data, tukey
@@ -329,7 +319,7 @@ def single_prop(df, delay_interval, tasks, analysis_types):
     plt.xlabel('Genotype')
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_{image_handle}_single_prop_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_{image_handle}_single_prop_plots.png')
     plt.show()
 
     return data, tukey
@@ -348,11 +338,12 @@ def x_session_motivation_graph(df,delay_interval,tasks):
 
     for rat in filtered['rat_ID'].unique():
         rat_df = filtered.loc[filtered['rat_ID'] == rat]
+        genotype = rat_df['Genotype'].iloc[0]
         tasks_for_rat = rat_df['task'].unique()
 
         for task in tasks_for_rat:
             task_df = rat_df[rat_df['task'] == task]
-
+            
             for uuid in task_df['UUID'].unique():
                 session_df = rat_df.loc[rat_df['UUID'] == uuid].sort_values('Time_since_file_start_(s)')
 
@@ -369,12 +360,13 @@ def x_session_motivation_graph(df,delay_interval,tasks):
                         'UUID': uuid,
                         'ITI': iti,
                         'relative_trial_pos': pos
+                        ,'Genotype': genotype
                 })
 
     iti_df = pd.DataFrame(rat_data_list)
-
+    print(iti_df)
     iti_df["bin"] = pd.cut(iti_df["relative_trial_pos"], bins=10, labels=False)
-    iti_by_bin = iti_df.groupby(["rat_ID", 'task', "UUID", "bin"])["ITI"].median().reset_index()
+    iti_by_bin = iti_df.groupby(["rat_ID", 'task', "UUID", "bin",'Genotype'])["ITI"].median().reset_index()
 
     task = iti_by_bin["task"].unique()
     fig, axes = plt.subplots(1, len(task), figsize=(6 * len(task), 5), sharey=True)
@@ -384,20 +376,22 @@ def x_session_motivation_graph(df,delay_interval,tasks):
 
     for ax, task in zip(axes, task):
         subset = iti_by_bin[iti_by_bin["task"] == task]
-        mean_iti = subset.groupby("bin")["ITI"].mean()
-        sem_iti = subset.groupby("bin")["ITI"].sem()
+        for genotype, geno_df in subset.groupby("Genotype"):
+            mean_iti = geno_df.groupby("bin")["ITI"].mean()
+            sem_iti = geno_df.groupby("bin")["ITI"].sem()
 
-        y_min, y_max = mean_iti.min() - 1, mean_iti.max() + 1  # Add some padding
+            ax.errorbar(mean_iti.index, mean_iti, yerr=sem_iti, fmt='-o', label=f"{task} ({genotype})")
+
+        y_min, y_max = mean_iti.min() - 1, mean_iti.max() + 1
         ax.set_ylim(y_min, y_max)
-
-        ax.errorbar(mean_iti.index, mean_iti, yerr=sem_iti, fmt='-o', label=task)
+        
         ax.set_title(f"Motivation trend ({task})")
         ax.set_xlabel("Session progression (binned)")
         ax.set_ylabel("Median inter-trial interval (s)")
         ax.legend()
 
     plt.tight_layout()
-    plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_xsession_motiv_plots.png')
+    plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_xsession_motiv_plots.png')
     plt.show()
     
     return iti_df
@@ -406,8 +400,8 @@ def main():
 
 ### data paths and wanted info
 
-    file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_archive.csv"
-    file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_data_exported_20250801.csv"
+    file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_trials_20251015.csv"
+    file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_20251015.csv"
     wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task','analysis_type']
     wanted_delay_interval = (4.0,1.0)
     training_tasks = ['Training']
@@ -415,6 +409,7 @@ def main():
     file_diff_tasks = ['Rxn','TH','Training']
     analysis_types = ["BBN (Standard)", "Tone (Single)"]
     twox_task = ['Baseline','Training']
+    twox_analysis_type = ['Training - BBN','Tone (Standard)','BBN (Standard)','Tone (Single)']
     
 ### data cleaning and organization
     df, info_df = load_data(file_path, file_info_path)
@@ -422,7 +417,7 @@ def main():
     shared_UUIDs = uuid_comparer(df, info_df)
     clean_df = data_cleaner(df, info_df, shared_UUIDs, wanted_columns_for_merge)
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
-    freq_range_set = rxn_th_finder(info_df)
+    # freq_range_set = rxn_th_finder(info_df)
 
 ### data analysis graphs
 
@@ -431,21 +426,21 @@ def main():
     # training_single_prop_data, training_prop_tukey = single_prop(delay_df,wanted_delay_interval,training_tasks,analysis_types)
     # baseline_single_prop_data, baseline_prop_tukey = single_prop(delay_df,wanted_delay_interval,tasks,analysis_types)
 
-    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, twox_task, analysis_types, wanted_delay_interval)
+    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, twox_task, twox_analysis_type, wanted_delay_interval)
 
     # weight_diff_data = weight_diff_graph
 
 ## controls
 
     # file_dist_data = file_type_distribution_graph(delay_df)
-    # trial_totals_data = trial_totals_graph(delay_df,tasks,analysis_types)
-    # training_time_props_data = training_prop_graph(delay_df)
+    # trial_totals_data = trial_totals_graph(delay_df,twox_task,twox_analysis_type)
+    # training_time_props_data, training_props_tukey = training_prop_graph(delay_df)
+    # *
 
 ## other 
 
-    # d_prime_data, d_prime_tukey = d_prime_graph(delay_df)
-    # need to separate by task
-    motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,twox_task)
+    # d_prime_data, d_prime_tukey = d_prime_graph(delay_df,twox_task,twox_analysis_type)
+    motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,file_diff_tasks)
 
 ### program testing
     print(f'''
@@ -456,7 +451,7 @@ Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-data: {freq_range_set}
+data: {training_props_tukey}
 ''')
     
 if __name__ == "__main__":
