@@ -14,6 +14,11 @@ def load_data(file_path, info_path):
     ### loads needed dataframes from file paths
     df = pd.read_csv(file_path)
     info_df = pd.read_csv(info_path)
+
+    info_df = info_df.loc[(info_df['task'] != 'Reset')
+                          & (info_df['task'] != 'Discrimination')
+                          & (info_df['task'] != 'Holding')]
+
     return df, info_df
 
 def file_info(info_df):
@@ -26,22 +31,73 @@ def file_info(info_df):
     file_info_df = pd.DataFrame(file_info, columns=['file_info','UUID'])
     merged_df = pd.merge(file_info_df, info_df, on="UUID", how="right")
     file_info_df = merged_df[merged_df['UUID'].isin(file_uuid_list)]
+
     return file_info_df
 
-def rxn_th_finder(df):
+def file_type_finder(df):
 
+    # finds training files based on whether or not there is a ncatch in file name
+    catch_pat = r'_\dcatch'
+
+    catch_mask = df['file_name'].astype(str).str.contains(catch_pat, regex=True)
+
+    training_uuids = df.loc[catch_mask, 'UUID']
+    training_uuids_list = training_uuids.tolist()
+
+
+    # find length of lock out time
+    lo_pat = r'_\d+s\b'
+
+    lo_matches = df['file_name'].apply(
+    lambda x: re.search(lo_pat, str(x)).group(0) if re.search(lo_pat, str(x)) else None)
+
+    lo_mask = lo_matches.notna()
+
+    lo_df = pd.DataFrame({
+        'UUID': df.loc[lo_mask, 'UUID'],
+        'lo_time': lo_matches[lo_mask]
+    })
+    lo_df['lo_time'] = lo_df['lo_time'].str.extract(r'\b_(\d+)s').astype('Int64')
+
+    lo_dict = dict(zip(lo_df['UUID'], lo_df['lo_time']))
+    df['lo_time'] = df['UUID'].map(lo_dict).fillna(0).astype(int)
+
+    # finds the dB interval for each session
     pattern = r'\b\d{2}-\d{2}dB\b'
 
     matches = df['file_info'].apply(
-        lambda tup: next((x for x in tup if re.search(pattern, str(x))), None)
-    )
+    lambda tup: next(
+        (re.search(pattern, str(x)).group(0) for x in tup if re.search(pattern, str(x))), None))
 
     mask = matches.notna()
-    df_filtered = pd.DataFrame({'file_info': matches[mask]}, index=df[mask].index)
 
-    freq_range_set = sorted(set(matches[mask]))
+    dB_df = pd.DataFrame({
+        'UUID': df.loc[mask, 'UUID'],
+        'dB_range': matches[mask]
+    })
 
-    return df_filtered, freq_range_set
+    dB_df['low_dB'] = dB_df['dB_range'].str.extract(r'(\d{2})').astype(int)
+
+    rxn_uuids = dB_df.loc[dB_df['low_dB'] > 20, 'UUID'].tolist()
+    th_uuids = dB_df.loc[dB_df['low_dB'] <= 20, 'UUID'].tolist()
+
+    df['new_task'] = df['UUID'].apply(lambda x: 'Training' if x in training_uuids_list else ('TH' if x in th_uuids else ('Rxn' if x in rxn_uuids else 'training_bad')))
+
+    dB_range_set = sorted(set(dB_df['dB_range']))
+
+    cldftrn = df.loc[(df['new_task'] == 'Training')]
+    cldfrxn = df.loc[(df['new_task'] == 'Rxn')]
+    cldfth = df.loc[(df['new_task'] == 'TH')]
+
+    trnflset = set(cldftrn['UUID'])
+    cldfrxnset = set(cldfrxn['UUID'])
+    cldfthset = set(cldfth['UUID'])
+
+    num_training = len(trnflset)
+    num_rxn = len(cldfrxnset)
+    num_th = len(cldfthset)
+
+    return df, dB_df, lo_df, dB_range_set, num_training, num_rxn, num_th
 
 def uuid_comparer(df, info_df):
     ### compares uuid (session ID) between dataframes and makes set of matched uuids
@@ -49,6 +105,7 @@ def uuid_comparer(df, info_df):
     data_UUIDs_set = set(df['UUID'])
     shared_UUIDs = valid_UUIDs_set.intersection(data_UUIDs_set)
     unshared_UUIDs = valid_UUIDs_set.symmetric_difference(data_UUIDs_set)
+
     return shared_UUIDs
 
 def round(x):
@@ -63,7 +120,20 @@ def data_cleaner(df, info_df, shared_UUIDs, wanted_columns):
     clean_df = merged_df[merged_df['UUID'].isin(shared_UUIDs)]
     clean_df = clean_df[clean_df['complete_block_number'] > 1]
     incomplete_blocks_df = clean_df[clean_df['complete_block_number'] == 1]
-    return clean_df
+
+    cldftrn = clean_df.loc[(clean_df['task'] == 'Training')]
+    cldfrxn = clean_df.loc[(clean_df['task'] == 'Rxn')]
+    cldfth = clean_df.loc[(clean_df['task'] == 'TH')]
+
+    trnflset = set(cldftrn['UUID'])
+    cldfrxnset = set(cldfrxn['UUID'])
+    cldfthset = set(cldfth['UUID'])
+
+    num_training = len(trnflset)
+    num_rxn = len(cldfrxnset)
+    num_th = len(cldfthset)
+
+    return clean_df, num_training, num_rxn, num_th
     
 def delay_classifier(df):
     ### finds all delay intervals and each session's interval, also lists out important data set information
@@ -91,7 +161,7 @@ def delay_classifier(df):
 
 def file_diff_graph(df, tasks, analysis_types, delay_interval):
 
-    df = df[['task','analysis_type','Attempts_to_complete','rat_ID','Delay (s)',"Max Delay (s)","Min Delay (s)"]]
+    df = df[['Genotype','task','analysis_type','Attempts_to_complete','rat_ID','Delay (s)',"Max Delay (s)","Min Delay (s)"]]
 
     df['one_attempt'] = df['Attempts_to_complete'] == 1
     df['more_than_one_attempt'] = df['Attempts_to_complete'] > 1
@@ -103,33 +173,33 @@ def file_diff_graph(df, tasks, analysis_types, delay_interval):
             & (df['task'].isin(tasks))
             & (df['analysis_type'].isin(analysis_types))
             ]
-    groups = filtered.groupby(['analysis_type', 'task']).agg(
+    groups = filtered.groupby(['Genotype', 'task']).agg(
     trials_one_attempt=('one_attempt', 'sum'),
     trials_more_than_one_attempt=('more_than_one_attempt', 'sum'),
     total_trials=('Attempts_to_complete', 'count'))
 
     groups['prop_one_attempt'] = groups['trials_one_attempt'] / groups['total_trials']
     groups['prop_more_than_one'] = groups['trials_more_than_one_attempt'] / groups['total_trials']
-    grouped_rats_df = groups.sort_values(by=['analysis_type', 'task']).reset_index()
+    grouped_rats_df = groups.sort_values(by=['Genotype', 'task']).reset_index()
     
-    prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','analysis_type','task']]
-    data = prop_one_attempt_data.sort_values(by=['task','analysis_type']).reset_index()
+    prop_one_attempt_data = grouped_rats_df[['prop_one_attempt','Genotype','task']]
+    data = prop_one_attempt_data.sort_values(by=['task','Genotype']).reset_index()
 
     plt.figure(figsize=(8, 6))
     sns.barplot(
         x='task',
         y='prop_one_attempt',
-        hue='analysis_type',
+        hue='Genotype',
         data=data,
         palette='Set2',
         edgecolor='black',
         errorbar='se'
     )
 
-    plt.title('Proportion of 1-Attempt Trials by Analysis Type and Task')
+    plt.title('Proportion of 1-Attempt Trials by Genotype and Task')
     plt.ylabel('Proportion of Trials Completed in One Attempt')
     plt.xlabel('Task')
-    plt.legend(title='Analysis Type', loc='upper left')
+    plt.legend(title='Genotype', loc='upper left')
     
     plt.tight_layout()
     # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_file_diff_plots.png', dpi=300, bbox_inches='tight')
@@ -261,15 +331,15 @@ def d_prime_graph(df, tasks, analysis_types):
 
         subset = data[data["task"] == task]
 
-        sns.boxplot(x='Genotype', y='d_prime', data=subset, palette='Set2', width=0.5, ax=ax)
-        sns.swarmplot(x='Genotype', y='d_prime', data=subset, color='black', size=1, ax=ax)
+        sns.boxplot(x='Genotype', y='hit_rate', data=subset, palette='Set2', width=0.5, ax=ax)
+        sns.swarmplot(x='Genotype', y='hit_rate', data=subset, color='black', size=1, ax=ax)
 
-        ax.set_title(f"{task} d' Differences Across Genotype")
+        ax.set_title(f"{task} Hit Rate Differences Across Genotype")
         ax.set_xlabel('Genotype')
-        ax.set_ylabel("d'")
+        ax.set_ylabel("Hit Rate")
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])  # leave space for legend
-    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_d_prime_plots.png')
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_hit_rate_plots.png')
     plt.show()
 
     return data, tukey
@@ -324,48 +394,59 @@ def single_prop(df, delay_interval, tasks, analysis_types):
 
     return data, tukey
 
-def x_session_motivation_graph(df,delay_interval,tasks):
-
-    df = df[['Time_since_file_start_(s)','rat_ID','Genotype','UUID','task','analysis_type','Min Delay (s)','Max Delay (s)']]
-
+def x_session_motivation_graph(df,delay_interval,tasks,lo_df):
+    n_trials = 800
+    df = df[['task','Time_since_file_start_(s)','Response','rat_ID','Genotype','UUID','analysis_type','Min Delay (s)','Max Delay (s)','new_task']]
+    
     filtered = df.loc[
             (df['Max Delay (s)'] == delay_interval[0])
             & (df['Min Delay (s)'] == delay_interval[1])
             & (df['task'].isin(tasks))
             ]
 
+    lo_dict = dict(zip(lo_df['UUID'], lo_df['lo_time']))
+    filtered['lo_time'] = filtered['UUID'].map(lo_dict).fillna(0)   
+
     rat_data_list = []
 
     for rat in filtered['rat_ID'].unique():
         rat_df = filtered.loc[filtered['rat_ID'] == rat]
         genotype = rat_df['Genotype'].iloc[0]
-        tasks_for_rat = rat_df['task'].unique()
 
-        for task in tasks_for_rat:
+        for task in rat_df['task'].unique():
             task_df = rat_df[rat_df['task'] == task]
             
             for uuid in task_df['UUID'].unique():
                 session_df = rat_df.loc[rat_df['UUID'] == uuid].sort_values('Time_since_file_start_(s)')
 
-                itis = np.diff(session_df['Time_since_file_start_(s)'].values)
-                n_trials = len(itis)
-                if len(itis) == 0:
-                    continue
-                relative_trial_pos = np.linspace(0, 1, n_trials, endpoint=False)
-
-                for iti, pos in zip(itis, relative_trial_pos):
+                for trial_num, row in enumerate(session_df.itertuples(), start=1):
                     rat_data_list.append({
                         'rat_ID': rat,
                         'task': task,
                         'UUID': uuid,
-                        'ITI': iti,
-                        'relative_trial_pos': pos
-                        ,'Genotype': genotype
+                        'trial_number': trial_num,
+                        'Time_since_file_start_(s)': row._2,
+                        'Response': row.Response,
+                        'Genotype': genotype,
+                        'lo_time': row.lo_time
                 })
 
     iti_df = pd.DataFrame(rat_data_list)
-    print(iti_df)
-    iti_df["bin"] = pd.cut(iti_df["relative_trial_pos"], bins=10, labels=False)
+
+    iti_df['ITI'] = iti_df.groupby('UUID')['Time_since_file_start_(s)'].diff()
+
+    iti_df = iti_df.dropna(subset=['ITI'])
+
+    iti_df['response_prev'] = iti_df.groupby('UUID')['Response'].shift(1)
+
+    specific_response = 'FA'
+    iti_df['ITI_adjusted'] = iti_df['ITI'] - iti_df['lo_time'].where(iti_df['response_prev'] == specific_response, 0)
+
+    n_bins = 10
+    bin_edges = np.linspace(0, n_trials, n_bins + 1)
+    bin_labels = (bin_edges[:-1] + bin_edges[1:]) / 2
+    iti_df["bin"] = pd.cut(iti_df["trial_number"], bins=bin_edges, labels=False)
+
     iti_by_bin = iti_df.groupby(["rat_ID", 'task', "UUID", "bin",'Genotype'])["ITI"].median().reset_index()
 
     task = iti_by_bin["task"].unique()
@@ -382,7 +463,11 @@ def x_session_motivation_graph(df,delay_interval,tasks):
 
             ax.errorbar(mean_iti.index, mean_iti, yerr=sem_iti, fmt='-o', label=f"{task} ({genotype})")
 
-        y_min, y_max = mean_iti.min() - 1, mean_iti.max() + 1
+        ax.set_xticks(range(n_bins))
+        ax.set_xticklabels([int(x) for x in bin_labels])
+        ax.set_xlabel("Approx. absolute trial number")
+
+        y_min, y_max = mean_iti.min() - 5, mean_iti.max() + 5
         ax.set_ylim(y_min, y_max)
         
         ax.set_title(f"Motivation trend ({task})")
@@ -391,7 +476,7 @@ def x_session_motivation_graph(df,delay_interval,tasks):
         ax.legend()
 
     plt.tight_layout()
-    plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_xsession_motiv_plots.png')
+    # plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_xsession_motiv_plots.png')
     plt.show()
     
     return iti_df
@@ -402,7 +487,7 @@ def main():
 
     file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_trials_20251015.csv"
     file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/Fmr1-LE_data_exported_20251015.csv"
-    wanted_columns_for_merge = ['date','UUID','weight','rat_ID','DOB','file_name','Genotype','task','analysis_type']
+    wanted_columns_for_merge = ['new_task','date','UUID','rat_ID','DOB','file_name','Genotype','analysis_type','task','lo_time']
     wanted_delay_interval = (4.0,1.0)
     training_tasks = ['Training']
     tasks = ['Rxn','TH']
@@ -414,10 +499,10 @@ def main():
 ### data cleaning and organization
     df, info_df = load_data(file_path, file_info_path)
     info_df = file_info(info_df)
+    info_df, dB_df, lo_df, dB_range_set, tst_num_trn, tst_num_rxn, tst_num_th = file_type_finder(info_df)
     shared_UUIDs = uuid_comparer(df, info_df)
-    clean_df = data_cleaner(df, info_df, shared_UUIDs, wanted_columns_for_merge)
+    clean_df, num_trn, num_rxn, num_th = data_cleaner(df, info_df, shared_UUIDs, wanted_columns_for_merge)
     delay_interval_list, delay_df, rat_ids, dob_list, gt_list = delay_classifier(clean_df)
-    # freq_range_set = rxn_th_finder(info_df)
 
 ### data analysis graphs
 
@@ -426,7 +511,11 @@ def main():
     # training_single_prop_data, training_prop_tukey = single_prop(delay_df,wanted_delay_interval,training_tasks,analysis_types)
     # baseline_single_prop_data, baseline_prop_tukey = single_prop(delay_df,wanted_delay_interval,tasks,analysis_types)
 
-    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, twox_task, twox_analysis_type, wanted_delay_interval)
+    ####### look for difference in variance between sessions for each rat
+
+    ####### categorial for 2 attempts 5 attempts 10 attempts rather than just 1 or more than one
+
+    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, file_diff_tasks, analysis_types, wanted_delay_interval)
 
     # weight_diff_data = weight_diff_graph
 
@@ -436,22 +525,51 @@ def main():
     # trial_totals_data = trial_totals_graph(delay_df,twox_task,twox_analysis_type)
     # training_time_props_data, training_props_tukey = training_prop_graph(delay_df)
     # *
+    
+    ####### exclude rats with a different trial number
+    
+    #^ double check that training files are actually training files by file name 0catch 3catch
+    #^ doesn't work for fmr1_le csv since training files arent designated by 0/3catch should work for twox
 
 ## other 
 
-    # d_prime_data, d_prime_tukey = d_prime_graph(delay_df,twox_task,twox_analysis_type)
-    motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,file_diff_tasks)
+    # d_prime_data, d_prime_tukey = d_prime_graph(delay_df,file_diff_tasks,analysis_types)
+
+    ### make graph for fa rate across genotype and task
+
+    # weight loss and weight gain
+
+    # motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,file_diff_tasks,lo_df)
+
+    # show all sessions for each genotype and then do sognificance test for uniformity?
+    # compare average height of each genotypes' graphs
+    
+    #^ need to control for false alarm time out if previous was FA exlude data
+
+    ####### difference between hits, misses, and FA for attempt number
+
+    ####### intertrial interval and fa rate
+
+    
+    ### FGX = red tsc = blue 2cross = purple wt = black
 
 ### program testing
     print(f'''
 Data using Tones and BBN with all different durations
 delay intervals: {delay_interval_list}
 DOBs: {dob_list}
+dB ranges: {dB_range_set}
 Genotypes: {gt_list}
 total rats in df: {len(rat_ids)}
 shared UUIDs: {len(shared_UUIDs)}
 number of trials: {len(clean_df)}
-data: {training_props_tukey}
+number of training sessions: {num_trn}
+number of rxn sessions: {num_rxn}
+number of th sessions: {num_th}
+number of test training sessions: {tst_num_trn}
+number of test rxn sessions: {tst_num_rxn}
+number of test th sessions: {tst_num_th}
+data: {motivation_data}
 ''')
     
 if __name__ == "__main__":
