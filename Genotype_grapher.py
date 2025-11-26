@@ -171,7 +171,7 @@ def delay_classifier(df):
 ########################################################################################################################################################
 ########################################################################################################################################################
 
-
+        
 
 def file_diff_graph(df, tasks, analysis_types, delay_interval,genotype_color):
 
@@ -217,7 +217,7 @@ def file_diff_graph(df, tasks, analysis_types, delay_interval,genotype_color):
     plt.legend(title='Genotype', loc='upper left')
     
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_diff_plots.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_file_diff_plots.png', dpi=300, bbox_inches='tight')
     plt.show()
 
     tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['Genotype'], alpha=0.05)
@@ -240,7 +240,7 @@ def rat_session_totals(df,genotype_color):
     plt.xticks(rotation=45)
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_rat_sessions_totals_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/fmr1_le_rat_sessions_totals_plots.png')
     plt.show()
 
     return data
@@ -294,7 +294,7 @@ def trial_totals_graph(df,tasks,analysis_types,genotype_color):
         ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_trial_totals_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_trial_totals_plots.png')
     plt.show()
 
     return data 
@@ -321,7 +321,7 @@ def training_prop_graph(df, genotype_color):
     plt.xlabel('Genotype')
 
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_training_props_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_training_props_plots.png')
     plt.show()
     
     tukey = pairwise_tukeyhsd(endog=data['training_props'], groups=data['Genotype'], alpha=0.05)
@@ -396,7 +396,7 @@ def single_prop(df, delay_interval, tasks, analysis_types, genotype_color):
     filtered = df.loc[
             (df['Max Delay (s)'] == delay_interval[0])
             & (df['Min Delay (s)'] == delay_interval[1])
-            & (df['Delay (s)'] > 2.5)
+            & (df['Delay (s)'] < 2.5)
             & (df['task'].isin(tasks))
             & (df['analysis_type'].isin(analysis_types))
             ]
@@ -417,27 +417,86 @@ def single_prop(df, delay_interval, tasks, analysis_types, genotype_color):
 
     # tukey = pairwise_tukeyhsd(endog=data['prop_one_attempt'], groups=data['Genotype'], alpha=0.05)
 
-    fig, axes = plt.subplots(1, len(nattempts), figsize=(6 * len(nattempts), 5), sharey=True)
-    for ax, nattempt in zip(axes, nattempts):
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=True)
+    axes = axes.flatten()
+    for i,(ax, nattempt) in enumerate(zip(axes, nattempts)):
         sns.boxplot(x='Genotype', y=nattempt, data=grouped_rats_df, palette=genotype_color, width=0.5, ax=ax)
 
         sns.swarmplot(x='Genotype', y=nattempt, data=grouped_rats_df, color='black', size=5, ax=ax)
 
         ax.set_title(nattempt.replace('prop_', '').replace('_attempt', '').capitalize())
-        ax.set_ylabel('Proportion of Trials Completed')
-        ax.set_xlabel('Genotype')
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        if i < 2:
+            ax.set_xlabel('')
+            ax.set_xticklabels([])
 
-    plt.suptitle('Proportion of Trials Completed Across Attempt Number')
+        else:
+            ax.set_xlabel('Genotype')
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        
+        if i % 2 == 1:
+            ax.set_ylabel('')
+        else:
+            ax.set_ylabel('Proportion of Trials Completed')
+
+    plt.suptitle(f'Proportion of {image_handle} Trials Completed Across Attempt Number')
     plt.tight_layout()
-    plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_{image_handle}_n_prop_plots.png')
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_{image_handle}_n_prop_plots.png')
     plt.show()
 
     return grouped_rats_df
 
+def var_graph(df,delay_interval,tasks,genotype_color):
+    # graph swarm plots for each rat and genotype each point being a sessions proportion of single attempt trials
+        
+    df = df[['rat_ID','Genotype','Max Delay (s)','Min Delay (s)','UUID','Attempts_to_complete','Delay (s)','task']]
+
+    filtered = df.loc[
+                    (df['Max Delay (s)'] == delay_interval[0])
+                    & (df['Min Delay (s)'] == delay_interval[1])
+                    & (df['Delay (s)'] > 2.5)
+                    & (df['task'].isin(tasks))
+                      ]
+    
+    filtered['one_attempt'] = filtered['Attempts_to_complete'] == 1
+
+    groups = filtered.groupby(['Genotype','rat_ID','UUID']).agg(
+    trials_one_attempt=('one_attempt','sum'),
+    total_trials=('Attempts_to_complete','count')
+    ).reset_index()
+    
+    groups[f'prop_one_attempt'] = groups['trials_one_attempt'] / groups['total_trials']
+
+    data = groups.sort_values(by=['Genotype','rat_ID']).reset_index()
+    
+    order = data['rat_ID'].tolist()
+    
+    sns.boxplot(x='rat_ID', y=groups['prop_one_attempt'], data=data, hue=groups['Genotype'], order=order, palette=genotype_color, width=0.5)
+    sns.swarmplot(x='rat_ID', y=groups['prop_one_attempt'], data=data, order=order, color='green', size=1)
+    plt.title(f"Variance of Single Attempt Trial Proportions")
+    plt.ylabel("Proportion of Single Attmept Trials")
+    plt.xlabel('Rat/Genotype')
+
+    plt.tight_layout()
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_var_plots.png')
+    plt.show()
+
+    prop_var_per_rat = data.groupby('Genotype')['prop_one_attempt'].var().reset_index(name='var')
+    prop_var_geno = prop_var_per_rat.groupby('Genotype')['var'].var()
+
+    sns.barplot(x='Genotype', y='var', data=prop_var_per_rat, palette=genotype_color)
+    plt.title(f"Differences in Genotype Behavioral Variability")
+    plt.ylabel("Variance of Single Attempt Proportions Over Sessions")
+    plt.xlabel('Genotype')
+
+    plt.tight_layout()
+    # plt.savefig(f'C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_geno_var_plots.png')
+    plt.show()
+
+    return prop_var_per_rat
+
 def x_session_motivation_graph(df,delay_interval,tasks,lo_df,genotype_color):
     n_trials = 800
-    df = df[['task','Time_since_file_start_(s)','Response','rat_ID','Genotype','UUID','analysis_type','Min Delay (s)','Max Delay (s)','new_task']]
+    df = df[['task','Time_since_file_start_(s)','Response','rat_ID','Genotype','UUID','analysis_type','Min Delay (s)','Max Delay (s)','Delay (s)','new_task']]
     
     filtered = df.loc[
             (df['Max Delay (s)'] == delay_interval[0])
@@ -488,28 +547,39 @@ def x_session_motivation_graph(df,delay_interval,tasks,lo_df,genotype_color):
     bin_labels = (bin_edges[:-1] + bin_edges[1:]) / 2
     iti_df["bin"] = pd.cut(iti_df["trial_number"], bins=bin_edges, labels=False)
 
-    iti_by_bin = iti_df.groupby(["rat_ID", 'task', "UUID", "bin",'Genotype'])["ITI"].median().reset_index()
-
-    task = iti_by_bin["task"].unique()
-
-    fig, axes = plt.subplots(1, len(task), figsize=(6 * len(task), 5), sharey=True)
+    per_rat = (
+    iti_df
+    .groupby(["rat_ID", "Genotype", "task", "bin"])["ITI"]
+    .median()
+    .reset_index()
+)
+    plot_df = (
+    per_rat
+    .groupby(["Genotype", "task", "bin"])["ITI"]
+    .agg(['mean', 'sem'])
+    .reset_index()
+)
+    task = plot_df["task"].unique()
+    fig, axes = plt.subplots(1, (len(task)), figsize=(6 * len(task), 5), sharey=True)
 
     if len(task) == 1:
         axes = [axes]
 
     for ax, task in zip(axes, task):
-        subset = iti_by_bin[iti_by_bin["task"] == task]
+        subset = plot_df[plot_df["task"] == task]
         for genotype, geno_df in subset.groupby("Genotype"):
-            mean_iti = geno_df.groupby("bin")["ITI"].mean()
-            sem_iti = geno_df.groupby("bin")["ITI"].sem()
-
-            ax.errorbar(mean_iti.index, mean_iti, yerr=sem_iti, fmt='-o', color=genotype_color[genotype], label=f"{task} ({genotype})")
+            ax.errorbar(geno_df["bin"],
+            geno_df["mean"],
+            yerr=geno_df["sem"], 
+            fmt='-o', 
+            color=genotype_color[genotype], 
+            label=f"{task} ({genotype})")
 
         ax.set_xticks(range(n_bins))
         ax.set_xticklabels([int(x) for x in bin_labels])
         ax.set_xlabel("Approx. absolute trial number")
 
-        y_min, y_max = mean_iti.min() - 5, mean_iti.max() + 5
+        y_min, y_max = geno_df['mean'].min() - 5, geno_df['mean'].max() + 5
         ax.set_ylim(y_min, y_max)
         
         ax.set_title(f"Motivation trend ({task})")
@@ -517,7 +587,7 @@ def x_session_motivation_graph(df,delay_interval,tasks,lo_df,genotype_color):
         ax.set_ylabel("Median inter-trial interval (s)")
         ax.legend()
     plt.tight_layout()
-    plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_xsession_motiv_plots.png')
+    # plt.savefig('C:/Users/ckill/OneDrive/Documents/GitHub/o_behavior_data_analysis_fall2025/figures/twox_xsession_motiv_plots.png')
     plt.show()
     
     return iti_df
@@ -528,6 +598,9 @@ def main():
 
     file_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_archive.csv"
     file_info_path="C:/Users/ckill/Documents/neuroscience_sterf/AuerbachLab/FXS x TSC_data_exported_20250801.csv"
+
+    # Tsc2-LE_data_exported_trials_20251015, Fmr1-LE_data_exported_trials_20251015
+
     wanted_columns_for_merge = ['new_task','date','UUID','rat_ID','DOB','file_name','Genotype','analysis_type','task','lo_time','weight']
     wanted_delay_interval = (4.0,1.0)
     training_tasks = ['Training']
@@ -559,18 +632,19 @@ def main():
 ## single_props
 
     # training_single_prop_data = single_prop(delay_df,wanted_delay_interval,training_tasks,training_analysis_types,genotype_color)
-    # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,file_diff_tasks,analysis_types, genotype_color)
+    # baseline_single_prop_data = single_prop(delay_df,wanted_delay_interval,twox_task,analysis_types, genotype_color)
 
-    ####### look for difference in variance between sessions for each rat
+    #^ look for difference in variance between sessions for each rat
+    prop_var_geno = var_graph(delay_df,wanted_delay_interval,file_diff_tasks,genotype_color)
 
-    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, twox_task, analysis_types, wanted_delay_interval,genotype_color)
+    # file_diff_data, file_diff_tukey = file_diff_graph(delay_df, file_diff_tasks, analysis_types, wanted_delay_interval,genotype_color)
 
     # weight_diff_data = weight_diff_graph
 
 ## controls
 
     # file_dist_data = file_type_distribution_graph(delay_df)
-    # trial_totals_data = trial_totals_graph(delay_df,twox_task,analysis_types,genotype_color)
+    # trial_totals_data = trial_totals_graph(delay_df,file_diff_tasks,analysis_types,genotype_color)
     # training_time_props_data, training_props_tukey = training_prop_graph(delay_df, genotype_color)
     # *
     
@@ -590,9 +664,9 @@ def main():
 
     # weight loss and weight gain
     # weight_drop_finder(delay_df)
-    # motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,twox_task,lo_df, genotype_color)
+    # motivation_data = x_session_motivation_graph(delay_df,wanted_delay_interval,file_diff_tasks,lo_df, genotype_color)
 
-    # show all sessions for each genotype and then do sognificance test for uniformity?
+    # show all sessions for each genotype and then do significance test for uniformity?
     # compare average height of each genotypes' graphs
     
     #^ need to control for false alarm time out if previous was FA exlude data
@@ -600,9 +674,6 @@ def main():
     ####### difference between hits, misses, and FA for attempt number
 
     ####### intertrial interval and fa rate
-
-    
-    ### FGX = red tsc = blue 2cross = purple wt = black
 
 ### program testing
     print(f'''
@@ -620,7 +691,7 @@ number of th sessions: {num_th}
 number of test training sessions: {tst_num_trn}
 number of test rxn sessions: {tst_num_rxn}
 number of test th sessions: {tst_num_th}
-data: {file_diff_tukey}
+data: {prop_var_geno}
 ''')
     
 if __name__ == "__main__":
